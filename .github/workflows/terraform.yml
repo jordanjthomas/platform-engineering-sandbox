@@ -87,49 +87,100 @@ jobs:
           [ $exitcode -eq 1 ] && exit 1 || exit 0
         continue-on-error: true
 
+      - name: Export Plan JSON
+        if: always()
+        run: terraform show -json tfplan > tfplan.json 2>/dev/null || true
+
       - name: Post Plan Comment
         uses: actions/github-script@v7
         with:
           script: |
-            const fs   = require('fs');
-            const MAX  = 60000;
+            const fs = require('fs');
+            const MAX = 60000;
 
             const fmt      = '${{ steps.fmt.outcome }}';
             const init     = '${{ steps.init.outcome }}';
             const validate = '${{ steps.validate.outcome }}';
             const plan     = '${{ steps.plan.outcome }}';
             const exitcode = '${{ steps.plan.outputs.exitcode }}';
+            const runUrl   = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
 
             const icon = (s) => s === 'success' ? '✅' : '❌';
 
+            // ── Parse plan JSON for structured resource output ──────────────
+            let adds = 0, updates = 0, destroys = 0, replaces = 0;
+            const rows = { create: [], update: [], delete: [], replace: [] };
+
+            try {
+              const planJson = JSON.parse(
+                fs.readFileSync('${{ env.TF_WORKING_DIR }}/tfplan.json', 'utf8')
+              );
+
+              for (const r of planJson.resource_changes ?? []) {
+                const actions = r.change.actions;
+                if (actions.every(a => a === 'no-op' || a === 'read')) continue;
+
+                const isReplace = actions.includes('delete') && actions.includes('create');
+                const action    = isReplace ? 'replace'  :
+                                  actions[0] === 'create' ? 'create'  :
+                                  actions[0] === 'delete' ? 'delete'  : 'update';
+
+                rows[action].push(r.address);
+                if (action === 'create')  adds++;
+                if (action === 'update')  updates++;
+                if (action === 'delete')  destroys++;
+                if (action === 'replace') replaces++;
+              }
+            } catch (_) { /* plan failed or no json — fall through */ }
+
+            const hasChanges = adds + updates + destroys + replaces > 0;
+
+            // ── Resource change table ───────────────────────────────────────
+            const resourceTable = () => {
+              if (!hasChanges) return '_No resource changes._\n';
+
+              const lines = [
+                '| Action | Resource |',
+                '|--------|----------|',
+                ...rows.create.map(a  => `| 🟢 create  | \`${a}\` |`),
+                ...rows.update.map(a  => `| 🟡 update  | \`${a}\` |`),
+                ...rows.replace.map(a => `| 🔁 replace | \`${a}\` |`),
+                ...rows.delete.map(a  => `| 🔴 destroy | \`${a}\` |`),
+              ];
+              return lines.join('\n');
+            };
+
+            // ── Raw plan output (collapsible) ───────────────────────────────
             let planBody = '';
             try {
               planBody = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
               if (planBody.length > MAX) {
-                planBody = planBody.substring(0, MAX) + '\n\n_(truncated — see full output in the [Actions run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}))_';
+                planBody = planBody.substring(0, MAX) + `\n\n_(truncated — [see full output](${runUrl}))_`;
               }
-            } catch (e) {
+            } catch (_) {
               planBody = '_Plan output unavailable_';
             }
 
             const summary =
-              plan === 'failure'     ? '> ❌ **Plan failed.** Fix errors before merging.' :
-              exitcode === '0'       ? '> ✅ **No infrastructure changes detected.**' :
-                                       '> ⚠️ **Changes detected — review the plan before merging.**';
+              plan === 'failure' ? '> ❌ **Plan failed.** Fix errors before merging.' :
+              exitcode === '0'   ? '> ✅ **No infrastructure changes.**' :
+                                   `> ⚠️ **Plan: ${adds} to add · ${updates} to change · ${replaces} to replace · ${destroys} to destroy**`;
 
+            // ── Assemble comment ────────────────────────────────────────────
             const body = [
               '<!-- terraform-plan-comment -->',
-              '## Terraform Plan',
+              `## Terraform Plan · \`${{ env.TF_ENVIRONMENT }}\``,
               '',
               '| Step | Status |',
               '|------|--------|',
-              `| \`fmt\` | ${icon(fmt)} |`,
-              `| \`init\` | ${icon(init)} |`,
+              `| \`fmt\`      | ${icon(fmt)} |`,
+              `| \`init\`     | ${icon(init)} |`,
               `| \`validate\` | ${icon(validate)} |`,
-              `| \`plan\` | ${icon(plan)} |`,
+              `| \`plan\`     | ${icon(plan)} |`,
               '',
               summary,
               '',
+              resourceTable(),
               '<details>',
               '<summary>Full plan output</summary>',
               '',
@@ -138,10 +189,10 @@ jobs:
               '```',
               '</details>',
               '',
-              `_Triggered by @${{ github.actor }} · [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})_`,
+              `_@${{ github.actor }} · [View run](${runUrl})_`,
             ].join('\n');
 
-            // Update existing comment rather than creating a new one on each push
+            // Upsert — update existing comment rather than creating a new one
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
