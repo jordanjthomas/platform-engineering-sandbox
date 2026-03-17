@@ -9,16 +9,14 @@ module "vpc" {
   public_subnets  = var.public_subnet_cidrs
   private_subnets = var.private_subnet_cidrs
 
-  # Single NAT GW is sufficient for sandbox; set one_nat_gateway_per_az = true for prod
-  enable_nat_gateway     = true
-  single_nat_gateway     = true
-  one_nat_gateway_per_az = false
+  enable_nat_gateway     = var.enable_nat_gateway
+  single_nat_gateway     = var.single_nat_gateway
+  one_nat_gateway_per_az = var.one_nat_gateway_per_az
 
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  # EKS requires these tags for the AWS Load Balancer Controller to
-  # auto-discover subnets when provisioning load balancers
+  # EKS requires these tags for the AWS Load Balancer Controller to auto-discover subnets when provisioning load balancers
   public_subnet_tags = {
     "kubernetes.io/role/elb"                    = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
