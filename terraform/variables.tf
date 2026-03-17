@@ -47,3 +47,18 @@ variable "private_subnet_cidrs" {
   type        = list(string)
   default     = ["10.0.4.0/22", "10.0.8.0/22", "10.0.12.0/22"]
 }
+
+variable "enable_nat_gateway" {
+  description = "Whether to provision a NAT Gateway for private subnets"
+  type        = bool
+}
+
+variable "single_nat_gateway" {
+  description = "Whether to use a single NAT Gateway for all AZs (true) or one per AZ (false)"
+  type        = bool
+}
+
+variable "one_nat_gateway_per_az" {
+  description = "Whether to provision one NAT Gateway per AZ (true) or a single shared NAT Gateway (false)"
+  type        = bool
+}
