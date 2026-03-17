@@ -163,7 +163,7 @@ jobs:
 
             const summary =
               plan === 'failure' ? '> ❌ **Plan failed.** Fix errors before merging.' :
-              exitcode === '0'   ? '> ✅ **No infrastructure changes.**' :
+              !hasChanges        ? '> ✅ **No infrastructure changes.**' :
                                    `> ⚠️ **Plan: ${adds} to add · ${updates} to change · ${replaces} to replace · ${destroys} to destroy**`;
 
             // ── Assemble comment ────────────────────────────────────────────
