@@ -60,7 +60,7 @@ jobs:
 
       - name: Terraform Format Check
         id: fmt
-        run: terraform fmt -check -recursive -diff
+        run: terraform fmt -check -recursive -diff 2>&1 | tee fmt_output.txt; exit ${PIPESTATUS[0]}
         continue-on-error: true
 
       - name: Terraform Init
@@ -203,6 +203,24 @@ jobs:
               return lines.join('\n');
             };
 
+            // ── fmt diff (shown only on failure) ───────────────────────────
+            let fmtSection = '';
+            if (fmt === 'failure') {
+              let fmtBody = '';
+              try {
+                fmtBody = fs.readFileSync('${{ env.TF_WORKING_DIR }}/fmt_output.txt', 'utf8').trim();
+              } catch (_) {}
+              fmtSection = [
+                '<details open>',
+                '<summary>❌ Format diff — run <code>terraform fmt -recursive</code> to fix</summary>',
+                '',
+                '```diff',
+                fmtBody,
+                '```',
+                '</details>',
+              ].join('\n');
+            }
+
             // ── Raw plan output (collapsible) ───────────────────────────────
             let planBody = '';
             try {
@@ -233,6 +251,7 @@ jobs:
               '',
               summary,
               '',
+              ...(fmtSection ? [fmtSection, ''] : []),
               resourceTable(),
               '',
               costSection,

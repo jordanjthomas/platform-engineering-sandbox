@@ -28,59 +28,6 @@ module "vpc" {
   }
 }
 
-# VPC endpoints - allow nodes in private subnets to reach AWS APIs without traversing the NAT gateway.
-# Interface endpoints: ec2 (VPC CNI ENI management), ecr.api/ecr.dkr (image pulls), sts (IRSA token
-# exchange), logs (CloudWatch), ssm/ec2messages (SSM node access).
-# Gateway endpoints: s3 (ECR image layers - free, no SG required).
-#
-# The security group restricts inbound 443 to the EKS node security group only (least privilege).
-# Note: on a clean first apply, Terraform resolves this dependency correctly because the node security
-# group is created as part of the EKS cluster setup, before the node group itself.
-
-resource "aws_security_group" "vpc_endpoints" {
-  name        = "${var.project}-${var.environment}-vpc-endpoints"
-  description = "Allow HTTPS inbound from EKS nodes to interface VPC endpoints"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress {
-    description     = "HTTPS from EKS nodes"
-    from_port       = 443
-    to_port         = 443
-    protocol        = "tcp"
-    security_groups = [module.eks.node_security_group_id]
-  }
-}
-
-locals {
-  interface_endpoints = {
-    ec2         = "com.amazonaws.${var.aws_region}.ec2"
-    ecr_api     = "com.amazonaws.${var.aws_region}.ecr.api"
-    ecr_dkr     = "com.amazonaws.${var.aws_region}.ecr.dkr"
-    sts         = "com.amazonaws.${var.aws_region}.sts"
-    logs        = "com.amazonaws.${var.aws_region}.logs"
-    ssm         = "com.amazonaws.${var.aws_region}.ssm"
-    ec2messages = "com.amazonaws.${var.aws_region}.ec2messages"
-  }
-}
-
-resource "aws_vpc_endpoint" "interface" {
-  for_each = local.interface_endpoints
-
-  vpc_id              = module.vpc.vpc_id
-  service_name        = each.value
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = module.vpc.private_subnets
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  private_dns_enabled = true
-}
-
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id            = module.vpc.vpc_id
-  service_name      = "com.amazonaws.${var.aws_region}.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = module.vpc.private_route_table_ids
-}
-
 # EKS cluster
 ## OIDC provider is created automatically by the module (v21+), enabling IRSA
 module "eks" {
@@ -94,8 +41,8 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   # Public access required for CI/CD and local kubectl
-  endpoint_public_access  = true
-  # Private access keeps node-to-control-plane traffic within the VPC, avoiding NAT gateway
+  endpoint_public_access = true
+  # Private access keeps node-to-control-plane traffic within the VPC
   endpoint_private_access = true
 
   # Grant the Terraform caller admin access to the cluster on creation
