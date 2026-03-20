@@ -60,6 +60,7 @@ module "eks" {
 resource "aws_ecr_repository" "app" {
   name                 = var.ecr_repository_name
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   image_scanning_configuration {
     scan_on_push = true
@@ -68,8 +69,9 @@ resource "aws_ecr_repository" "app" {
 
 # Secrets Manager
 resource "aws_secretsmanager_secret" "app_api_key" {
-  name        = "/${var.environment}/${var.project}/admin-token"
-  description = "Bearer token required to call the namespace provisioner API - injected into the app via External Secrets Operator"
+  name                    = "/${var.environment}/${var.project}/admin-token"
+  description             = "Bearer token required to call the namespace provisioner API - injected into the app via External Secrets Operator"
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "app_api_key" {
