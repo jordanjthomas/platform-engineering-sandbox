@@ -142,10 +142,10 @@ jobs:
               const lines = [
                 '| Action | Resource |',
                 '|--------|----------|',
-                ...rows.create.map(a  => `| 🟢 create  | \`${a}\` |`),
-                ...rows.update.map(a  => `| 🟡 update  | \`${a}\` |`),
-                ...rows.replace.map(a => `| 🔁 replace | \`${a}\` |`),
-                ...rows.delete.map(a  => `| 🔴 destroy | \`${a}\` |`),
+                ...rows.create.map(a  => `| 🟢 create  | ${a} |`),
+                ...rows.update.map(a  => `| 🟡 update  | ${a} |`),
+                ...rows.replace.map(a => `| 🔁 replace | ${a} |`),
+                ...rows.delete.map(a  => `| 🔴 destroy | ${a} |`),
               ];
               return lines.join('\n');
             };
