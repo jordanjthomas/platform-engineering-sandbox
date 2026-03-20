@@ -111,6 +111,24 @@ module "eks" {
   }
 }
 
+# EKS add-ons — must be declared explicitly; not installed automatically by the module.
+# vpc-cni initialises the CNI plugin on each node (required for NotReady → Ready transition).
+# kube-proxy and coredns are required for cluster networking and DNS.
+resource "aws_eks_addon" "vpc_cni" {
+  cluster_name = module.eks.cluster_name
+  addon_name   = "vpc-cni"
+}
+
+resource "aws_eks_addon" "kube_proxy" {
+  cluster_name = module.eks.cluster_name
+  addon_name   = "kube-proxy"
+}
+
+resource "aws_eks_addon" "coredns" {
+  cluster_name = module.eks.cluster_name
+  addon_name   = "coredns"
+}
+
 # ECR repository for app container images
 resource "aws_ecr_repository" "app" {
   name                 = var.ecr_repository_name
