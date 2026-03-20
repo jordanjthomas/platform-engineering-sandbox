@@ -49,6 +49,15 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
+      # Ensures the AWSServiceRoleForAmazonEKSNodegroup SLR exists before Terraform runs.
+      # In production this would live in a bootstrap Terraform workspace (run once per account)
+      # alongside other account-level prerequisites such as the S3 state bucket and the
+      # GitHub Actions OIDC role — keeping prerequisites in code rather than CI scripts.
+      - name: Ensure EKS nodegroup service-linked role exists
+        run: |
+          aws iam get-role --role-name AWSServiceRoleForAmazonEKSNodegroup > /dev/null 2>&1 || \
+            aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
+
       - name: Terraform Format Check
         id: fmt
         run: terraform fmt -check -recursive -diff
@@ -291,6 +300,12 @@ jobs:
         uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: ${{ env.TF_VERSION }}
+
+      # See plan job for full comment on why this exists and the production alternative.
+      - name: Ensure EKS nodegroup service-linked role exists
+        run: |
+          aws iam get-role --role-name AWSServiceRoleForAmazonEKSNodegroup > /dev/null 2>&1 || \
+            aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
 
       - name: Terraform Init
         run: |

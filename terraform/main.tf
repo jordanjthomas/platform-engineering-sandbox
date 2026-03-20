@@ -28,11 +28,6 @@ module "vpc" {
   }
 }
 
-# Required in fresh accounts - EKS managed node groups cannot run without this SLR.
-resource "aws_iam_service_linked_role" "eks_nodegroup" {
-  aws_service_name = "eks-nodegroup.amazonaws.com"
-}
-
 # EKS cluster
 ## OIDC provider is created automatically by the module (v21+), enabling IRSA
 module "eks" {
@@ -50,8 +45,6 @@ module "eks" {
 
   # Grant the Terraform caller admin access to the cluster on creation
   enable_cluster_creator_admin_permissions = true
-
-  depends_on = [aws_iam_service_linked_role.eks_nodegroup]
 
   eks_managed_node_groups = {
     default = {
