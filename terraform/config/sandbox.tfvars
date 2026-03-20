@@ -10,8 +10,6 @@ aws_region = "ap-southeast-2"
 enable_nat_gateway     = true
 single_nat_gateway     = true
 one_nat_gateway_per_az = false
-enable_dns_hostnames   = true
-enable_dns_support     = true
 
 # EKS Configuration
 kubernetes_version = "1.35"
