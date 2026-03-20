@@ -41,7 +41,7 @@ module "eks" {
   subnet_ids = module.vpc.private_subnets
 
   # Public access required for CI/CD and local kubectl
-  endpoint_public_access  = true
+  endpoint_public_access = true
   # Private access keeps node-to-control-plane traffic within the VPC
   endpoint_private_access = true
 
