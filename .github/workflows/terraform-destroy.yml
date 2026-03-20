@@ -1,0 +1,63 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_VERSION:     "1.10.5"
+  AWS_REGION:     "ap-southeast-2"
+  TF_WORKING_DIR: "terraform"
+  TF_IN_AUTOMATION: "true"
+  TF_ENVIRONMENT: "sandbox"
+
+jobs:
+  destroy:
+    name: Destroy
+    runs-on: ubuntu-latest
+    environment: sandbox
+    if: github.event.inputs.confirm == 'destroy'
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-tf-destroy
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_ENVIRONMENT }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform Destroy
+        run: |
+          terraform destroy \
+            -input=false \
+            -auto-approve \
+            -no-color \
+            -var-file="config/${{ env.TF_ENVIRONMENT }}.tfvars"

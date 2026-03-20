@@ -62,3 +62,42 @@ variable "one_nat_gateway_per_az" {
   description = "Whether to provision one NAT Gateway per AZ (true) or a single shared NAT Gateway (false)"
   type        = bool
 }
+
+# EKS
+
+variable "kubernetes_version" {
+  description = "Kubernetes version for the EKS cluster"
+  type        = string
+  default     = "1.32"
+}
+
+variable "node_instance_type" {
+  description = "EC2 instance type for the EKS managed node group"
+  type        = string
+  default     = "t3.medium"
+}
+
+variable "node_desired_size" {
+  description = "Desired number of nodes in the EKS managed node group"
+  type        = number
+  default     = 2
+}
+
+variable "node_min_size" {
+  description = "Minimum number of nodes in the EKS managed node group"
+  type        = number
+  default     = 1
+}
+
+variable "node_max_size" {
+  description = "Maximum number of nodes in the EKS managed node group"
+  type        = number
+  default     = 3
+}
+
+# ECR
+
+variable "ecr_repository_name" {
+  description = "Name of the ECR repository for app container images"
+  type        = string
+}
