@@ -1,0 +1,81 @@
+name: App CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/app-ci.yml"
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: app/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements-dev.txt
+
+      - name: Run tests
+        run: cd app && python -m pytest tests/ -v --tb=short --junit-xml=../test-results/pytest.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: Pytest Results
+          path: test-results/pytest.xml
+          reporter: java-junit
+
+  scan:
+    name: Image Scan
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set image metadata
+        id: meta
+        run: echo "tags=${{ env.ECR_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+        env:
+          ECR_REPOSITORY: platform-engineering-app
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: app
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          output: trivy-results.txt
+
+      - name: Publish scan results to step summary
+        if: always()
+        run: |
+          echo "## Trivy Image Scan Results" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f trivy-results.txt ] && [ -s trivy-results.txt ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat trivy-results.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No CRITICAL or HIGH vulnerabilities found." >> "$GITHUB_STEP_SUMMARY"
+          fi
