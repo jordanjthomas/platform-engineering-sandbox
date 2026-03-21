@@ -115,6 +115,6 @@ class TestDeleteNamespace:
 
 
 class TestAuthRequired:
-    def test_unauthenticated_returns_403(self, unauthed_client):
+    def test_unauthenticated_returns_401(self, unauthed_client):
         response = unauthed_client.get("/namespaces")
-        assert response.status_code == 403
+        assert response.status_code == 401
