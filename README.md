@@ -15,12 +15,6 @@ k8s/         — Kubernetes manifests for deploying the API
 
 Terraform provisions a VPC, EKS cluster, and ECR repository in `ap-southeast-2`.
 
-```bash
-cd terraform
-terraform init -backend-config="bucket=<state-bucket>" -backend-config="key=sandbox/terraform.tfstate" -backend-config="region=ap-southeast-2"
-terraform plan -var-file="config/sandbox.tfvars"
-```
-
 ## API
 
 All endpoints except `/healthz` and `/metrics` require `Authorization: Bearer <token>`.
@@ -43,6 +37,63 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-## Deploy
+## CI/CD
 
-Push to `main` with changes under `app/` or `k8s/` triggers the app deploy workflow: test, build, push to ECR, deploy to the sandbox EKS cluster.
+Two GitHub Actions workflows deploy via OIDC (no stored AWS credentials):
+
+**Terraform** (`terraform.yml`) — triggers on changes to `terraform/`:
+
+- PR: fmt check, validate, plan, post plan summary as PR comment
+- Merge to main: auto-apply to sandbox (with environment approval gate)
+
+**App** (`app-deploy.yml`) — triggers on changes to `app/` or `k8s/`:
+
+- PR: run tests
+- Merge to main: test, build Docker image, push to ECR (tagged with commit SHA), deploy to sandbox EKS cluster (with environment approval gate)
+
+## Usage
+
+The API runs in EKS as a ClusterIP service (no external ingress). To access it from your machine, port-forward:
+
+```bash
+kubectl port-forward svc/namespace-provisioner -n platform 8080:80
+```
+
+Create a namespace:
+
+```bash
+curl -X POST http://localhost:8080/namespaces \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "payments-dev", "team": "payments", "environment": "dev"}'
+```
+
+Override quota defaults:
+
+```bash
+curl -X POST http://localhost:8080/namespaces \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "ml-dev", "team": "ml", "environment": "dev", "quota": {"cpu_limits": "8", "memory_limits": "16Gi", "pods": 50}}'
+```
+
+List managed namespaces (with optional filters):
+
+```bash
+curl http://localhost:8080/namespaces?team=payments \
+  -H "Authorization: Bearer <token>"
+```
+
+Get namespace details and live quota usage:
+
+```bash
+curl http://localhost:8080/namespaces/payments-dev \
+  -H "Authorization: Bearer <token>"
+```
+
+Delete a namespace (rejects if pods are running, use `?force=true` to override):
+
+```bash
+curl -X DELETE http://localhost:8080/namespaces/payments-dev \
+  -H "Authorization: Bearer <token>"
+```
