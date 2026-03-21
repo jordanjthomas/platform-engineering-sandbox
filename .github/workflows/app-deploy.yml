@@ -17,6 +17,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  checks: write
 
 env:
   AWS_REGION: ap-southeast-2
@@ -41,7 +42,15 @@ jobs:
         run: pip install -r app/requirements-dev.txt
 
       - name: Run tests
-        run: cd app && python -m pytest tests/ -v --tb=short
+        run: cd app && python -m pytest tests/ -v --tb=short --junit-xml=../test-results/pytest.xml
+
+      - name: Publish test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Pytest Results
+          path: test-results/pytest.xml
+          reporter: java-junit
 
   build-and-push:
     name: Build & Push
@@ -69,12 +78,24 @@ jobs:
           IMAGE_URI="${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}"
           echo "tags=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image
+      - name: Build Docker image
         uses: docker/build-push-action@v7
         with:
           context: app
-          push: true
+          push: false
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.35.0
+        with:
+          image-ref: ${{ steps.meta.outputs.tags }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+
+      - name: Push Docker image
+        run: docker push ${{ steps.meta.outputs.tags }}
 
   deploy:
     name: Deploy
