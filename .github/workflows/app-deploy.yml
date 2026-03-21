@@ -18,7 +18,6 @@ permissions:
   id-token: write
   contents: read
   checks: write
-  security-events: write
 
 env:
   AWS_REGION: ap-southeast-2
@@ -46,7 +45,7 @@ jobs:
         run: cd app && python -m pytest tests/ -v --tb=short --junit-xml=../test-results/pytest.xml
 
       - name: Publish test results
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v2
         if: always()
         with:
           name: Pytest Results
@@ -99,21 +98,19 @@ jobs:
           format: table
           exit-code: "1"
           severity: CRITICAL,HIGH
+          output: trivy-results.txt
 
-      - name: Upload Trivy scan results to GitHub Security
-        uses: aquasecurity/trivy-action@v0.35.0
+      - name: Publish scan results to step summary
         if: always()
-        with:
-          image-ref: ${{ steps.meta.outputs.tags }}
-          format: sarif
-          output: trivy-results.sarif
-          severity: CRITICAL,HIGH
-
-      - name: Upload SARIF to GitHub
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy-results.sarif
+        run: |
+          echo "## Trivy Image Scan Results" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f trivy-results.txt ] && [ -s trivy-results.txt ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat trivy-results.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No CRITICAL or HIGH vulnerabilities found." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Push Docker image
         if: github.ref == 'refs/heads/main'
