@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: namespace-provisioner
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: namespace-provisioner
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: namespace-provisioner
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
