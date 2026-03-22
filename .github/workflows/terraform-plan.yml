@@ -1,0 +1,294 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-plan.yml"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: terraform-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_VERSION: "1.10.5"
+  AWS_REGION: "ap-southeast-2"
+  TF_WORKING_DIR: "terraform"
+  TF_IN_AUTOMATION: "true"
+  TF_ENVIRONMENT: "sandbox"
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-tf-plan
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # Ensures the AWSServiceRoleForAmazonEKSNodegroup SLR exists before Terraform runs.
+      # In production this would live in a bootstrap Terraform workspace (run once per account)
+      # alongside other account-level prerequisites such as the S3 state bucket and the
+      # GitHub Actions OIDC role — keeping prerequisites in code rather than CI scripts.
+      - name: Ensure EKS nodegroup service-linked role exists
+        run: |
+          aws iam get-role --role-name AWSServiceRoleForAmazonEKSNodegroup > /dev/null 2>&1 || \
+            aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive -diff 2>&1 | tee fmt_output.txt; exit ${PIPESTATUS[0]}
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_ENVIRONMENT }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        continue-on-error: true
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          set +e
+          terraform plan \
+            -input=false \
+            -no-color \
+            -detailed-exitcode \
+            -var-file="config/${{ env.TF_ENVIRONMENT }}.tfvars" \
+            -out=tfplan \
+            2>&1 | tee plan_output.txt
+          exitcode=${PIPESTATUS[0]}
+          echo "exitcode=${exitcode}" >> $GITHUB_OUTPUT
+          # exit 0 = no changes, exit 2 = changes present — neither is an error
+          [ $exitcode -eq 1 ] && exit 1 || exit 0
+        continue-on-error: true
+
+      - name: Export Plan JSON
+        if: always()
+        run: terraform show -json tfplan > tfplan.json 2>/dev/null || true
+
+      - name: Setup Infracost
+        if: always()
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Run Infracost
+        if: always()
+        run: |
+          infracost breakdown \
+            --path=tfplan.json \
+            --format=json \
+            --out-file=infracost.json
+        continue-on-error: true
+
+      - name: Post Plan Comment
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const MAX = 60000;
+
+            const fmt      = '${{ steps.fmt.outcome }}';
+            const init     = '${{ steps.init.outcome }}';
+            const validate = '${{ steps.validate.outcome }}';
+            const plan     = '${{ steps.plan.outcome }}';
+            const exitcode = '${{ steps.plan.outputs.exitcode }}';
+            const runUrl   = '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}';
+
+            const icon = (s) => s === 'success' ? '✅' : '❌';
+
+            // ── Parse plan JSON for structured resource output ──────────────
+            let adds = 0, updates = 0, destroys = 0, replaces = 0;
+            const rows = { create: [], update: [], delete: [], replace: [] };
+
+            try {
+              const planJson = JSON.parse(
+                fs.readFileSync('${{ env.TF_WORKING_DIR }}/tfplan.json', 'utf8')
+              );
+
+              for (const r of planJson.resource_changes ?? []) {
+                const actions = r.change.actions;
+                if (actions.every(a => a === 'no-op' || a === 'read')) continue;
+
+                const isReplace = actions.includes('delete') && actions.includes('create');
+                const action    = isReplace ? 'replace'  :
+                                  actions[0] === 'create' ? 'create'  :
+                                  actions[0] === 'delete' ? 'delete'  : 'update';
+
+                rows[action].push(r.address);
+                if (action === 'create')  adds++;
+                if (action === 'update')  updates++;
+                if (action === 'delete')  destroys++;
+                if (action === 'replace') replaces++;
+              }
+            } catch (_) { /* plan failed or no json — fall through */ }
+
+            const hasChanges = adds + updates + destroys + replaces > 0;
+
+            // ── Parse Infracost JSON for cost estimate ──────────────────────
+            let costSection = '';
+            try {
+              const ic = JSON.parse(
+                fs.readFileSync('${{ env.TF_WORKING_DIR }}/infracost.json', 'utf8')
+              );
+              const total = parseFloat(ic.totalMonthlyCost ?? 0);
+              const currency = ic.currency ?? 'USD';
+              const fmt2 = (n) => parseFloat(n ?? 0).toFixed(2);
+
+              const costRows = (ic.projects ?? [])
+                .flatMap(p => p.breakdown?.resources ?? [])
+                .filter(r => parseFloat(r.monthlyCost ?? 0) > 0)
+                .map(r => `| ${r.name} | $${fmt2(r.monthlyCost)} |`);
+
+              costSection = [
+                '### 💰 Estimated cost',
+                `**$${fmt2(total)} ${currency}/month**`,
+                '',
+                ...(costRows.length ? [
+                  '| Resource | Monthly cost |',
+                  '|----------|-------------|',
+                  ...costRows,
+                ] : ['_No priced resources detected._']),
+              ].join('\n');
+            } catch (_) {
+              costSection = '### 💰 Estimated cost\n_Cost estimation unavailable._';
+            }
+
+            // ── Resource change table ───────────────────────────────────────
+            const resourceTable = () => {
+              if (!hasChanges) return '_No resource changes._\n';
+
+              const lines = [
+                '| Action | Resource |',
+                '|--------|----------|',
+                ...rows.create.map(a  => `| 🟢 create  | ${a} |`),
+                ...rows.update.map(a  => `| 🟡 update  | ${a} |`),
+                ...rows.replace.map(a => `| 🔁 replace | ${a} |`),
+                ...rows.delete.map(a  => `| 🔴 destroy | ${a} |`),
+              ];
+              return lines.join('\n');
+            };
+
+            // ── fmt diff (shown only on failure) ───────────────────────────
+            let fmtSection = '';
+            if (fmt === 'failure') {
+              let fmtBody = '';
+              try {
+                fmtBody = fs.readFileSync('${{ env.TF_WORKING_DIR }}/fmt_output.txt', 'utf8').trim();
+              } catch (_) {}
+              fmtSection = [
+                '<details open>',
+                '<summary>❌ Format diff — run <code>terraform fmt -recursive</code> to fix</summary>',
+                '',
+                '```diff',
+                fmtBody,
+                '```',
+                '</details>',
+              ].join('\n');
+            }
+
+            // ── Raw plan output (collapsible) ───────────────────────────────
+            let planBody = '';
+            try {
+              planBody = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan_output.txt', 'utf8');
+              if (planBody.length > MAX) {
+                planBody = planBody.substring(0, MAX) + `\n\n_(truncated — [see full output](${runUrl}))_`;
+              }
+            } catch (_) {
+              planBody = '_Plan output unavailable_';
+            }
+
+            const summary =
+              plan === 'failure' ? '> ❌ **Plan failed.** Fix errors before merging.' :
+              !hasChanges        ? '> ✅ **No infrastructure changes.**' :
+                                   `> ⚠️ **Plan: ${adds} to add · ${updates} to change · ${replaces} to replace · ${destroys} to destroy**`;
+
+            // ── Assemble comment ────────────────────────────────────────────
+            const body = [
+              '<!-- terraform-plan-comment -->',
+              `## Terraform Plan · \`${{ env.TF_ENVIRONMENT }}\``,
+              '',
+              '| Step | Status |',
+              '|------|--------|',
+              `| \`fmt\`      | ${icon(fmt)} |`,
+              `| \`init\`     | ${icon(init)} |`,
+              `| \`validate\` | ${icon(validate)} |`,
+              `| \`plan\`     | ${icon(plan)} |`,
+              '',
+              summary,
+              '',
+              ...(fmtSection ? [fmtSection, ''] : []),
+              resourceTable(),
+              '',
+              costSection,
+              '<details>',
+              '<summary>Full plan output</summary>',
+              '',
+              '```hcl',
+              planBody,
+              '```',
+              '</details>',
+              '',
+              `_@${{ github.actor }} · [View run](${runUrl})_`,
+            ].join('\n');
+
+            // Upsert — update existing comment rather than creating a new one
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes('<!-- terraform-plan-comment -->'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if fmt, validate, or plan failed
+        if: steps.fmt.outcome == 'failure' || steps.validate.outcome == 'failure' || steps.plan.outcome == 'failure'
+        run: exit 1

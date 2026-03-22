@@ -1,0 +1,78 @@
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform-apply.yml"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-apply
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.10.5"
+  AWS_REGION: "ap-southeast-2"
+  TF_WORKING_DIR: "terraform"
+  TF_IN_AUTOMATION: "true"
+  TF_ENVIRONMENT: "sandbox"
+
+jobs:
+  apply:
+    name: Apply
+    runs-on: ubuntu-latest
+    environment: sandbox
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-tf-apply
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # See terraform-plan.yml for full comment on why this exists and the production alternative.
+      - name: Ensure EKS nodegroup service-linked role exists
+        run: |
+          aws iam get-role --role-name AWSServiceRoleForAmazonEKSNodegroup > /dev/null 2>&1 || \
+            aws iam create-service-linked-role --aws-service-name eks-nodegroup.amazonaws.com
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=${{ env.TF_ENVIRONMENT }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="use_lockfile=true" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      # Apply re-runs plan rather than using the PR's saved plan artifact.
+      # This ensures we apply against the current state of main, not a
+      # potentially stale plan from when the PR was open.
+      - name: Terraform Apply
+        run: |
+          terraform apply \
+            -input=false \
+            -auto-approve \
+            -no-color \
+            -var-file="config/${{ env.TF_ENVIRONMENT }}.tfvars"
