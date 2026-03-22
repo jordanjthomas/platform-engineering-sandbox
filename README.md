@@ -1,14 +1,14 @@
 # platform-engineering-sandbox
 
-Self-service Kubernetes namespace provisioner running on EKS. Provisions namespaces with ResourceQuota, LimitRange, NetworkPolicy, and consistent labelling via a FastAPI HTTP API.
+A platform API that lets teams self-serve Kubernetes namespaces without needing cluster access or knowing how to write resource manifests. A single API call provisions a namespace with sensible defaults: resource quotas, container limit ranges, network policies, and consistent labelling. This removes the platform team as a bottleneck for environment setup while enforcing guardrails that prevent resource sprawl and misconfiguration.
 
 ## Repo structure
 
 ```text
-terraform/   — VPC, EKS cluster, ECR (IaC via Terraform)
-app/         — FastAPI namespace provisioner API
-k8s/         — Kubernetes manifests for deploying the API
-.github/     — CI/CD workflows (Terraform + app deploy)
+terraform/   - VPC, EKS cluster, ECR (IaC via Terraform)
+app/         - FastAPI namespace provisioner API
+k8s/         - Kubernetes manifests for deploying the API
+.github/     - CI/CD workflows (Terraform + app deploy)
 ```
 
 ## Infrastructure
@@ -56,9 +56,19 @@ Three GitHub Actions workflows, all using OIDC (no stored AWS credentials):
 - Build Docker image and push to ECR (tagged with commit SHA)
 - Deploy to sandbox EKS cluster (with environment approval gate)
 
+## Network architecture
+
+The API is deployed as a `ClusterIP` service, so it is only reachable from within the cluster network. There is no Ingress, LoadBalancer, or other external route.
+
+I kept this cluster-internal deliberately. This is a sandbox project, and the namespace-provisioner is a control-plane API that creates and deletes cluster resources (namespaces, ResourceQuotas, NetworkPolicies). Exposing it externally would mean standing up an ingress controller, TLS, and a proper auth layer (OAuth2/OIDC), which is more infrastructure than I need right now. The simple bearer-token auth works fine as a second layer internally, but I wouldn't want it as the only thing between the internet and namespace deletion.
+
+For now, access from outside the cluster goes through `kubectl port-forward`, which tunnels through the Kubernetes API server using existing cluster credentials.
+
+> If I want to expose this externally later, the path would be: AWS Load Balancer Controller, an Ingress resource with TLS via ACM, and an authN/authZ layer in front (e.g. OAuth2 proxy).
+
 ## Usage
 
-The API runs in EKS as a ClusterIP service (no external ingress). To access it from your machine, port-forward:
+Port-forward to access the API from your machine:
 
 ```bash
 kubectl port-forward svc/namespace-provisioner -n platform 8080:80
