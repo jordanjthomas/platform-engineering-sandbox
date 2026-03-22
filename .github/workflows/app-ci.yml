@@ -56,6 +56,8 @@ jobs:
       - name: Validate manifests with kubeconform
         run: |
           kubeconform -summary -strict -kubernetes-version 1.32.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -ignore-filename-pattern '.*kustomization.*' \
             k8s/
 
