@@ -48,7 +48,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # See terraform.yml plan job for full comment on why this exists and the production alternative.
+      # See terraform-plan.yml for full comment on why this exists and the production alternative.
       - name: Ensure EKS nodegroup service-linked role exists
         run: |
           aws iam get-role --role-name AWSServiceRoleForAmazonEKSNodegroup > /dev/null 2>&1 || \
