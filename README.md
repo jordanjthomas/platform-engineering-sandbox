@@ -39,17 +39,22 @@ python -m pytest tests/ -v
 
 ## CI/CD
 
-Two GitHub Actions workflows deploy via OIDC (no stored AWS credentials):
+Three GitHub Actions workflows, all using OIDC (no stored AWS credentials):
 
 **Terraform** (`terraform.yml`) — triggers on changes to `terraform/`:
 
-- PR: fmt check, validate, plan, post plan summary as PR comment
+- PR: fmt check, validate, plan, Infracost estimate, post summary as PR comment
 - Merge to main: auto-apply to sandbox (with environment approval gate)
 
-**App** (`app-deploy.yml`) — triggers on changes to `app/` or `k8s/`:
+**App CI** (`app-ci.yml`) — triggers on PRs to `main` with changes to `app/`:
 
-- PR: run tests
-- Merge to main: test, build Docker image, push to ECR (tagged with commit SHA), deploy to sandbox EKS cluster (with environment approval gate)
+- Run tests (pytest with JUnit reporting)
+- Build Docker image and run Trivy vulnerability scan
+
+**App Deploy** (`app-deploy.yml`) — triggers on push to `main` with changes to `app/` or `k8s/`:
+
+- Build Docker image and push to ECR (tagged with commit SHA)
+- Deploy to sandbox EKS cluster (with environment approval gate)
 
 ## Usage
 
