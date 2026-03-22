@@ -67,18 +67,20 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
 
-      - name: Create admin token secret # I will update this process later to use JWT tokens with short expiry instead of static secrets
-        env:
-          ADMIN_TOKEN: ${{ secrets.API_ADMIN_TOKEN }}
+      - name: Install External Secrets Operator
         run: |
-          kubectl create secret generic namespace-provisioner-token \
-            --namespace ${{ env.K8S_NAMESPACE }} \
-            --from-literal=ADMIN_TOKEN="${ADMIN_TOKEN}" \
-            --dry-run=client -o yaml | kubectl apply -f -
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --version 0.17.0 \
+            --wait
 
       - name: Apply Kubernetes manifests
         run: |
           kubectl apply -f k8s/namespace/
+          kubectl apply -f k8s/external-secrets/
           kubectl apply -f k8s/app/
 
       - name: Update deployment image
