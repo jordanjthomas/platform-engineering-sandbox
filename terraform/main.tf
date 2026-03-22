@@ -92,6 +92,19 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
+# External Secrets Operator
+resource "helm_release" "external_secrets" {
+  name             = "external-secrets"
+  repository       = "https://charts.external-secrets.io"
+  chart            = "external-secrets"
+  version          = "0.14.4"
+  namespace        = "external-secrets"
+  create_namespace = true
+  wait             = true
+
+  depends_on = [module.eks]
+}
+
 # IAM role for External Secrets Operator (via EKS Pod Identity)
 resource "aws_iam_role" "external_secrets" {
   name = "${var.cluster_name}-external-secrets"
