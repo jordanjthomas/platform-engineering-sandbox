@@ -5,10 +5,12 @@ A platform API that lets teams self-serve Kubernetes namespaces without needing 
 ## Repo structure
 
 ```text
-terraform/   - VPC, EKS cluster, ECR (IaC via Terraform)
-app/         - FastAPI namespace provisioner API
-k8s/         - Kubernetes manifests for deploying the API
-.github/     - CI/CD workflows (Terraform + app deploy)
+terraform/           - VPC, EKS cluster, ECR, Pod Identity, IAM (IaC via Terraform)
+app/                 - FastAPI namespace provisioner API
+k8s/app/             - Kubernetes manifests for deploying the API
+k8s/external-secrets/- SecretStore and ExternalSecret resources
+k8s/namespace/       - Namespace definition
+.github/             - CI/CD workflows (Terraform + app deploy)
 ```
 
 ## Infrastructure
@@ -55,6 +57,43 @@ Three GitHub Actions workflows, all using OIDC (no stored AWS credentials):
 
 - Build Docker image and push to ECR (tagged with commit SHA)
 - Deploy to sandbox EKS cluster (with environment approval gate)
+
+## Secrets management
+
+Application secrets are stored in AWS Secrets Manager and synced into Kubernetes via [External Secrets Operator](https://external-secrets.io/) (ESO). The ESO controller authenticates to AWS using EKS Pod Identity, so no static credentials or OIDC trust policy boilerplate is required.
+
+### How it works
+
+1. **Terraform** provisions the Secrets Manager secret (the container), the Pod Identity agent addon, an IAM role scoped to read the secret, and a Pod Identity association binding that role to the ESO service account
+2. **ESO** (installed via Helm in the deploy workflow) runs a `SecretStore` pointing at Secrets Manager and an `ExternalSecret` that syncs the secret value into a native Kubernetes Secret
+3. **The app** reads the Kubernetes Secret as an environment variable. It has no awareness of Secrets Manager
+
+### Seeding a secret value
+
+Terraform creates the Secrets Manager secret but does not manage the value, keeping it out of state. Set the value out-of-band after the initial `terraform apply`:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id /sandbox/platform-engineering/admin-token \
+  --secret-string '{"token":"<your-actual-token>"}' \
+  --region ap-southeast-2
+```
+
+To rotate the value, run the same command with the new token. ESO will pick up the change within the `refreshInterval` configured on the ExternalSecret (default: 1h).
+
+### Verifying the sync
+
+After deploying, confirm the ExternalSecret is healthy:
+
+```bash
+kubectl get externalsecret namespace-provisioner-token -n platform
+```
+
+The `STATUS` column should show `SecretSynced`. If it shows an error, check the ESO controller logs:
+
+```bash
+kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets
+```
 
 ## Network architecture
 

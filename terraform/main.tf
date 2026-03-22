@@ -29,7 +29,7 @@ module "vpc" {
 }
 
 # EKS cluster
-## OIDC provider is created automatically by the module (v21+), enabling IRSA
+## OIDC provider is created automatically by the module (v21+)
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
@@ -76,6 +76,11 @@ resource "aws_eks_addon" "coredns" {
   addon_name   = "coredns"
 }
 
+resource "aws_eks_addon" "pod_identity_agent" {
+  cluster_name = module.eks.cluster_name
+  addon_name   = "eks-pod-identity-agent"
+}
+
 # ECR repository for app container images
 resource "aws_ecr_repository" "app" {
   name                 = var.ecr_repository_name
@@ -87,6 +92,53 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
+# IAM role for External Secrets Operator (via EKS Pod Identity)
+resource "aws_iam_role" "external_secrets" {
+  name = "${var.cluster_name}-external-secrets"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "pods.eks.amazonaws.com"
+        }
+        Action = [
+          "sts:AssumeRole",
+          "sts:TagSession",
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "external_secrets" {
+  name = "secrets-manager-read"
+  role = aws_iam_role.external_secrets.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+        ]
+        Resource = aws_secretsmanager_secret.app_api_key.arn
+      }
+    ]
+  })
+}
+
+resource "aws_eks_pod_identity_association" "external_secrets" {
+  cluster_name    = module.eks.cluster_name
+  namespace       = "external-secrets"
+  service_account = "external-secrets"
+  role_arn        = aws_iam_role.external_secrets.arn
+}
+
 # Secrets Manager
 resource "aws_secretsmanager_secret" "app_api_key" {
   name                    = "/${var.environment}/${var.project}/admin-token"
@@ -94,9 +146,5 @@ resource "aws_secretsmanager_secret" "app_api_key" {
   recovery_window_in_days = 0
 }
 
-resource "aws_secretsmanager_secret_version" "app_api_key" {
-  secret_id = aws_secretsmanager_secret.app_api_key.id
-  secret_string = jsonencode({
-    token = "PLACEHOLDER_VALUE"
-  })
-}
+# Secret value is managed out-of-band to keep it out of Terraform state.
+# See README.md "Secrets Management" for the seeding procedure.
