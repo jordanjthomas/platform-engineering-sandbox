@@ -12,12 +12,15 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: app-deploy
+  cancel-in-progress: false
+
 env:
   AWS_REGION: ap-southeast-2
   ECR_REPOSITORY: platform-engineering-app
   EKS_CLUSTER: platform-engineering-sandbox
   K8S_NAMESPACE: platform
-  ESO_CHART_VERSION: "2.2.0"
 
 jobs:
   build-and-push:
@@ -68,19 +71,10 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER }} --region ${{ env.AWS_REGION }}
 
-      - name: Install External Secrets Operator
-        run: |
-          helm repo add external-secrets https://charts.external-secrets.io
-          helm repo update
-          helm upgrade --install external-secrets external-secrets/external-secrets \
-            --namespace external-secrets \
-            --create-namespace \
-            --version ${{ env.ESO_CHART_VERSION }} \
-            --wait
-
       - name: Apply Kubernetes manifests
         run: |
           kubectl apply -f k8s/namespace/
+          kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/${{ env.K8S_NAMESPACE }} --timeout=30s
           kubectl apply -f k8s/external-secrets/
           kubectl apply -f k8s/app/
 

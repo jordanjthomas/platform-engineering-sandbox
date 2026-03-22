@@ -17,6 +17,10 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: terraform-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   TF_VERSION: "1.10.5"
   AWS_REGION: "ap-southeast-2"
@@ -116,7 +120,7 @@ jobs:
         continue-on-error: true
 
       - name: Post Plan Comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -291,8 +295,8 @@ jobs:
               });
             }
 
-      - name: Fail if fmt or plan failed
-        if: steps.fmt.outcome == 'failure' || steps.plan.outcome == 'failure'
+      - name: Fail if fmt, validate, or plan failed
+        if: steps.fmt.outcome == 'failure' || steps.validate.outcome == 'failure' || steps.plan.outcome == 'failure'
         run: exit 1
 
   apply:
@@ -335,6 +339,9 @@ jobs:
             -backend-config="region=${{ env.AWS_REGION }}" \
             -backend-config="use_lockfile=true" \
             -backend-config="encrypt=true"
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
 
       # Apply re-runs plan rather than using the PR's saved plan artifact.
       # This ensures we apply against the current state of main, not a
