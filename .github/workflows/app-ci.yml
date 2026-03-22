@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "app/**"
+      - "k8s/**"
       - ".github/workflows/app-ci.yml"
 
 permissions:
@@ -37,6 +38,31 @@ jobs:
           name: Pytest Results
           path: test-results/pytest.xml
           reporter: java-junit
+
+  k8s-validate:
+    name: Validate K8s Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Validate manifests with kubeconform
+        run: |
+          kubeconform -summary -strict -kubernetes-version 1.32.0 \
+            -ignore-filename-pattern '.*kustomization.*' \
+            k8s/
+
+      - name: Install kube-linter
+        run: |
+          curl -fsSL https://github.com/stackrox/kube-linter/releases/download/v0.7.1/kube-linter-linux.tar.gz \
+            | tar xz -C /usr/local/bin kube-linter
+
+      - name: Lint manifests with kube-linter
+        run: kube-linter lint k8s/
 
   scan:
     name: Image Scan
