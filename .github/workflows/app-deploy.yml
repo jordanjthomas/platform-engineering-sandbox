@@ -17,6 +17,7 @@ env:
   ECR_REPOSITORY: platform-engineering-app
   EKS_CLUSTER: platform-engineering-sandbox
   K8S_NAMESPACE: platform
+  ESO_CHART_VERSION: "2.2.0"
 
 jobs:
   build-and-push:
@@ -74,7 +75,7 @@ jobs:
           helm upgrade --install external-secrets external-secrets/external-secrets \
             --namespace external-secrets \
             --create-namespace \
-            --version 0.17.0 \
+            --version ${{ env.ESO_CHART_VERSION }} \
             --wait
 
       - name: Apply Kubernetes manifests
