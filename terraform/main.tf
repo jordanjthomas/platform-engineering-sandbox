@@ -160,4 +160,4 @@ resource "aws_secretsmanager_secret" "app_api_key" {
 }
 
 # Secret value is managed out-of-band to keep it out of Terraform state.
-# See README.md "Secrets Management" for the seeding procedure
+# See README.md "Secrets Management" for the seeding procedure.
