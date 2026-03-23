@@ -6,6 +6,8 @@ metadata:
   labels:
     app.kubernetes.io/name: namespace-provisioner
     app.kubernetes.io/component: api
+    team: platform
+    environment: sandbox
 spec:
   replicas: 1
   selector:
