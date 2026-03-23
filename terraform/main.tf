@@ -105,6 +105,44 @@ resource "helm_release" "external_secrets" {
   depends_on = [module.eks]
 }
 
+# Kyverno — policy engine for Kubernetes admission control
+resource "helm_release" "kyverno" {
+  name             = "kyverno"
+  repository       = "https://kyverno.github.io/kyverno/"
+  chart            = "kyverno"
+  version          = "3.3.4"
+  namespace        = "kyverno"
+  create_namespace = true
+  wait             = true
+
+  set {
+    name  = "admissionController.replicas"
+    value = "1"
+  }
+
+  set {
+    name  = "admissionController.container.resources.limits.memory"
+    value = "256Mi"
+  }
+
+  set {
+    name  = "admissionController.container.resources.limits.cpu"
+    value = "100m"
+  }
+
+  set {
+    name  = "admissionController.container.resources.requests.memory"
+    value = "128Mi"
+  }
+
+  set {
+    name  = "admissionController.container.resources.requests.cpu"
+    value = "100m"
+  }
+
+  depends_on = [module.eks]
+}
+
 # IAM role for External Secrets Operator (via EKS Pod Identity)
 resource "aws_iam_role" "external_secrets" {
   name = "${var.cluster_name}-external-secrets"

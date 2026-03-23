@@ -1,0 +1,41 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-labels
+  annotations:
+    policies.kyverno.io/title: Require Labels on Workloads
+    policies.kyverno.io/description: >-
+      Requires that all workload controllers have team and environment labels
+      for resource identification and ownership tracking.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-required-labels
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - Job
+                - CronJob
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kube-node-lease
+                - kube-public
+                - kyverno
+                - external-secrets
+      validate:
+        message: >-
+          All workload resources must have 'team' and 'environment' labels in
+          metadata.labels for resource identification and ownership tracking.
+        pattern:
+          metadata:
+            labels:
+              team: "?*"
+              environment: "?*"

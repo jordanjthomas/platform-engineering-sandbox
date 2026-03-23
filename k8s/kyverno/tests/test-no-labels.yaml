@@ -1,0 +1,30 @@
+# Test manifest: should be REJECTED by require-labels policy
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: test-no-labels
+  namespace: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: test-no-labels
+  template:
+    metadata:
+      labels:
+        app: test-no-labels
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: test
+          image: busybox:1.36
+          command: ["sh", "-c", "sleep 3600"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
