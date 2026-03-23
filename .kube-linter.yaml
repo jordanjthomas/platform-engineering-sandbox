@@ -1,0 +1,7 @@
+customConfig:
+  objectFilters:
+    - name: exclude-kyverno-test-manifests
+      filePathFilter:
+        include: []
+        exclude:
+          - "k8s/kyverno/tests/.*"
