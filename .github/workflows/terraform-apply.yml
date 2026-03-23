@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TF_VERSION: "1.10.5"
+  TF_VERSION: "1.14.7"
   AWS_REGION: "ap-southeast-2"
   TF_WORKING_DIR: "terraform"
   TF_IN_AUTOMATION: "true"
