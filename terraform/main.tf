@@ -93,17 +93,17 @@ resource "aws_ecr_repository" "app" {
 }
 
 # External Secrets Operator
-resource "helm_release" "external_secrets" {
-  name             = "external-secrets"
-  repository       = "https://charts.external-secrets.io"
-  chart            = "external-secrets"
-  version          = "0.14.4"
-  namespace        = "external-secrets"
-  create_namespace = true
-  wait             = true
+# resource "helm_release" "external_secrets" {
+#   name             = "external-secrets"
+#   repository       = "https://charts.external-secrets.io"
+#   chart            = "external-secrets"
+#   version          = "0.14.4"
+#   namespace        = "external-secrets"
+#   create_namespace = true
+#   wait             = true
 
-  depends_on = [module.eks]
-}
+#   depends_on = [module.eks]
+# }
 
 # IAM role for External Secrets Operator (via EKS Pod Identity)
 resource "aws_iam_role" "external_secrets" {
@@ -145,12 +145,12 @@ resource "aws_iam_role_policy" "external_secrets" {
   })
 }
 
-resource "aws_eks_pod_identity_association" "external_secrets" {
-  cluster_name    = module.eks.cluster_name
-  namespace       = "external-secrets"
-  service_account = "external-secrets"
-  role_arn        = aws_iam_role.external_secrets.arn
-}
+# resource "aws_eks_pod_identity_association" "external_secrets" {
+#   cluster_name    = module.eks.cluster_name
+#   namespace       = "external-secrets"
+#   service_account = "external-secrets"
+#   role_arn        = aws_iam_role.external_secrets.arn
+# }
 
 # Secrets Manager
 resource "aws_secretsmanager_secret" "app_api_key" {
