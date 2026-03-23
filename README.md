@@ -8,7 +8,7 @@ A platform API that lets teams self-serve Kubernetes namespaces without needing 
 terraform/           - VPC, EKS cluster, ECR, Pod Identity, IAM (IaC via Terraform)
 app/                 - FastAPI namespace provisioner API
 k8s/app/             - Kubernetes manifests for deploying the API
-k8s/external-secrets/- SecretStore and ExternalSecret resources
+k8s/external-secrets/- ClusterSecretStore and ExternalSecret resources
 k8s/namespace/       - Namespace definition
 .github/             - CI/CD workflows (Terraform + app deploy)
 ```
@@ -41,22 +41,45 @@ python -m pytest tests/ -v
 
 ## CI/CD
 
-Three GitHub Actions workflows, all using OIDC (no stored AWS credentials):
+GitHub Actions workflows, all using OIDC (no stored AWS credentials):
 
-**Terraform** (`terraform.yml`) — triggers on changes to `terraform/`:
+**Terraform Plan** (`terraform-plan.yml`) -- triggers on PRs with changes to `terraform/`:
 
-- PR: fmt check, validate, plan, Infracost estimate, post summary as PR comment
-- Merge to main: auto-apply to sandbox (with environment approval gate)
+- fmt check, validate, plan, Infracost estimate, post summary as PR comment
 
-**App CI** (`app-ci.yml`) — triggers on PRs to `main` with changes to `app/`:
+**Terraform Apply** (`terraform-apply.yml`) -- triggers on push to `main` with changes to `terraform/`:
+
+- Auto-apply to sandbox (with environment approval gate)
+
+**Terraform Destroy** (`terraform-destroy.yml`) -- manual trigger only (`workflow_dispatch`)
+
+**App CI** (`app-ci.yml`) -- triggers on PRs to `main` with changes to `app/` or `k8s/`, or manual trigger:
 
 - Run tests (pytest with JUnit reporting)
 - Build Docker image and run Trivy vulnerability scan
 
-**App Deploy** (`app-deploy.yml`) — triggers on push to `main` with changes to `app/` or `k8s/`:
+**App Deploy** (`app-deploy.yml`) -- triggers on push to `main` with changes to `app/` or `k8s/`, or manual trigger:
 
 - Build Docker image and push to ECR (tagged with commit SHA)
 - Deploy to sandbox EKS cluster (with environment approval gate)
+
+## Deployment order
+
+Infrastructure and the application are deployed by separate workflows with no automatic dependency between them. On a fresh deploy (or after a full teardown), follow this order:
+
+1. **Terraform Apply** -- push changes to `terraform/` or trigger manually. Wait for the workflow to complete. This provisions the VPC, EKS cluster, ECR, ESO, and IAM resources.
+2. **Seed the secret** -- Terraform creates the Secrets Manager secret but not its value (kept out of state). Set it once after the initial apply:
+
+   ```bash
+   aws secretsmanager put-secret-value \
+     --secret-id /sandbox/platform-engineering/admin-token \
+     --secret-string '{"token":"<your-actual-token>"}' \
+     --region ap-southeast-2
+   ```
+
+3. **App Deploy** -- push changes to `app/` or `k8s/`, or trigger manually from the Actions tab. This builds the container image, pushes to ECR, and applies the Kubernetes manifests.
+
+For day-to-day changes, pushes to `terraform/` or `app/`/`k8s/` trigger their respective workflows automatically and can run independently.
 
 ## Secrets management
 
@@ -64,8 +87,8 @@ Application secrets are stored in AWS Secrets Manager and synced into Kubernetes
 
 ### How it works
 
-1. **Terraform** provisions the Secrets Manager secret (the container), the Pod Identity agent addon, an IAM role scoped to read the secret, and a Pod Identity association binding that role to the ESO service account
-2. **ESO** (installed via Helm in the deploy workflow) runs a `SecretStore` pointing at Secrets Manager and an `ExternalSecret` that syncs the secret value into a native Kubernetes Secret
+1. **Terraform** provisions the Secrets Manager secret (the container), installs ESO via Helm, the Pod Identity agent addon, an IAM role scoped to read the secret, and a Pod Identity association binding that role to the ESO service account
+2. **App Deploy** applies a `ClusterSecretStore` pointing at Secrets Manager and an `ExternalSecret` that syncs the secret value into a native Kubernetes Secret
 3. **The app** reads the Kubernetes Secret as an environment variable. It has no awareness of Secrets Manager
 
 ### Seeding a secret value
