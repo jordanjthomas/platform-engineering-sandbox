@@ -11,6 +11,7 @@ spec:
   selector:
     app.kubernetes.io/name: namespace-provisioner
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: 8000
       protocol: TCP

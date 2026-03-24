@@ -5,10 +5,12 @@ A platform API that lets teams self-serve Kubernetes namespaces without needing 
 ## Repo structure
 
 ```text
-terraform/           - VPC, EKS cluster, ECR, Pod Identity, IAM (IaC via Terraform)
+terraform/           - VPC, EKS cluster, ECR, Pod Identity, IAM, Helm releases (IaC via Terraform)
 app/                 - FastAPI namespace provisioner API
 k8s/app/             - Kubernetes manifests for deploying the API
 k8s/external-secrets/- ClusterSecretStore and ExternalSecret resources
+k8s/kyverno/         - Kyverno ClusterPolicies (resource limits, non-root, labels)
+k8s/monitoring/      - ServiceMonitor, PrometheusRule, Grafana dashboard, monitoring ExternalSecret
 k8s/namespace/       - Namespace definition
 .github/             - CI/CD workflows (Terraform + app deploy)
 ```
@@ -67,17 +69,24 @@ GitHub Actions workflows, all using OIDC (no stored AWS credentials):
 
 Infrastructure and the application are deployed by separate workflows with no automatic dependency between them. On a fresh deploy (or after a full teardown), follow this order:
 
-1. **Terraform Apply** -- push changes to `terraform/` or trigger manually. Wait for the workflow to complete. This provisions the VPC, EKS cluster, ECR, ESO, and IAM resources.
-2. **Seed the secret** -- Terraform creates the Secrets Manager secret but not its value (kept out of state). Set it once after the initial apply:
+1. **Terraform Apply** -- push changes to `terraform/` or trigger manually. Wait for the workflow to complete. This provisions the VPC, EKS cluster, ECR, ESO, IAM, kube-prometheus-stack, and loki-stack.
+2. **Seed secrets** -- Terraform creates Secrets Manager secrets but not their values (kept out of state). Set them once after the initial apply:
 
    ```bash
+   # API admin token
    aws secretsmanager put-secret-value \
      --secret-id /sandbox/platform-engineering/admin-token \
      --secret-string '{"token":"<your-actual-token>"}' \
      --region ap-southeast-2
+
+   # Grafana admin password
+   aws secretsmanager put-secret-value \
+     --secret-id /sandbox/platform-engineering/grafana-admin-password \
+     --secret-string '{"username":"admin","password":"<your-secure-password>"}' \
+     --region ap-southeast-2
    ```
 
-3. **App Deploy** -- push changes to `app/` or `k8s/`, or trigger manually from the Actions tab. This builds the container image, pushes to ECR, and applies the Kubernetes manifests.
+3. **App Deploy** -- push changes to `app/` or `k8s/`, or trigger manually from the Actions tab. This builds the container image, pushes to ECR, and applies the Kubernetes manifests (including monitoring resources when CRDs are present).
 
 For day-to-day changes, pushes to `terraform/` or `app/`/`k8s/` trigger their respective workflows automatically and can run independently.
 
@@ -117,6 +126,54 @@ The `STATUS` column should show `SecretSynced`. If it shows an error, check the 
 ```bash
 kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets
 ```
+
+## Observability
+
+The cluster runs a full observability stack deployed via Terraform Helm releases:
+
+- **Prometheus** (kube-prometheus-stack) -- metrics collection, alerting, node-exporter, kube-state-metrics
+- **Grafana** -- dashboards and log exploration
+- **AlertManager** -- alert routing
+- **Loki + Promtail** (loki-stack) -- log aggregation from all pods
+
+### Accessing the UIs
+
+All observability UIs are cluster-internal only (no Ingress). Access via port-forward:
+
+```bash
+# Grafana (dashboards, logs)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-grafana 3000:80
+
+# Prometheus (targets, query)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:9090
+
+# AlertManager (alert status)
+kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
+```
+
+Grafana credentials are stored in Secrets Manager at `/<environment>/<project>/grafana-admin-password` and synced via ESO.
+
+### App metrics
+
+The namespace provisioner exposes Prometheus metrics at `/metrics`. A ServiceMonitor in the `platform` namespace configures Prometheus to scrape it every 30 seconds.
+
+Custom metrics:
+
+- `namespace_provisioner_requests_total{method, path, status}` -- request counter
+- `namespace_provisioner_request_duration_seconds{method, path}` -- request latency histogram
+
+A "Namespace Provisioner Overview" Grafana dashboard is auto-provisioned via a ConfigMap, showing request rate, error rate, latency percentiles (p50/p95/p99), pod restarts, CPU/memory usage, and recent logs from Loki.
+
+### Alerts
+
+Two PrometheusRule alerts are configured:
+
+| Alert | Condition | Severity |
+| ----- | --------- | -------- |
+| HighErrorRate | 5xx rate > 5% for 5 minutes | warning |
+| FrequentPodRestarts | > 3 restarts in 10 minutes | critical |
+
+View alert status in AlertManager or in the Prometheus UI under Alerts.
 
 ## Network architecture
 

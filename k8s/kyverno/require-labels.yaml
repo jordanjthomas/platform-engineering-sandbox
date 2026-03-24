@@ -30,6 +30,8 @@ spec:
                 - kube-public
                 - kyverno
                 - external-secrets
+                - monitoring
+                - loki
       validate:
         message: >-
           All workload resources must have 'team' and 'environment' labels in
