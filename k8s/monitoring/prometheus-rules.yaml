@@ -1,0 +1,45 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: namespace-provisioner
+  namespace: platform
+  labels:
+    app.kubernetes.io/name: namespace-provisioner
+spec:
+  groups:
+    - name: namespace-provisioner.rules
+      rules:
+        - alert: HighErrorRate
+          expr: >
+            (
+              sum(rate(namespace_provisioner_requests_total{status=~"5.."}[5m]))
+              /
+              sum(rate(namespace_provisioner_requests_total[5m]))
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Namespace provisioner error rate exceeds 5%"
+            description: >
+              The namespace provisioner API has returned 5xx errors at a rate
+              above 5% for the past 5 minutes. Current rate:
+              {{ $value | humanizePercentage }}.
+
+        - alert: FrequentPodRestarts
+          expr: >
+            increase(
+              kube_pod_container_status_restarts_total{
+                namespace="platform",
+                pod=~"namespace-provisioner.*"
+              }[10m]
+            ) > 3
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Namespace provisioner pod restarting frequently"
+            description: >
+              The namespace provisioner pod {{ $labels.pod }} has restarted
+              more than 3 times in the past 10 minutes. This may indicate a
+              crash loop or resource exhaustion.

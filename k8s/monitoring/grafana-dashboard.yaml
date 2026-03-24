@@ -1,0 +1,176 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: namespace-provisioner-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  namespace-provisioner.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "title": "Request Rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "sum(rate(namespace_provisioner_requests_total[5m])) by (method)",
+              "legendFormat": "{{ method }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": { "drawStyle": "line", "fillOpacity": 10 }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "title": "Error Rate",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "sum(rate(namespace_provisioner_requests_total{status=~\"4..|5..\"}[5m])) / sum(rate(namespace_provisioner_requests_total[5m]))",
+              "legendFormat": "error rate"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": { "drawStyle": "line", "fillOpacity": 10 },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 0.05 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "title": "Request Latency",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum(rate(namespace_provisioner_request_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(namespace_provisioner_request_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(namespace_provisioner_request_duration_seconds_bucket[5m])) by (le))",
+              "legendFormat": "p99"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": { "drawStyle": "line", "fillOpacity": 10 }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "title": "Pod Restarts",
+          "type": "stat",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"platform\", pod=~\"namespace-provisioner.*\"}",
+              "legendFormat": "{{ pod }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 1 },
+                  { "color": "red", "value": 3 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "title": "CPU Usage",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "rate(container_cpu_usage_seconds_total{namespace=\"platform\", pod=~\"namespace-provisioner.*\", container=\"api\"}[5m])",
+              "legendFormat": "{{ pod }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": { "drawStyle": "line", "fillOpacity": 10 }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "title": "Memory Usage",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "container_memory_working_set_bytes{namespace=\"platform\", pod=~\"namespace-provisioner.*\", container=\"api\"}",
+              "legendFormat": "{{ pod }}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": { "drawStyle": "line", "fillOpacity": 10 }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "title": "Recent Logs",
+          "type": "logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 24 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            {
+              "expr": "{namespace=\"platform\", container=\"api\"}",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "sortOrder": "Descending",
+            "enableLogDetails": true
+          }
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["namespace-provisioner", "platform"],
+      "templating": { "list": [] },
+      "time": { "from": "now-1h", "to": "now" },
+      "title": "Namespace Provisioner Overview",
+      "uid": "namespace-provisioner-overview"
+    }
