@@ -76,27 +76,18 @@ jobs:
         run: |
           kubectl apply -f k8s/namespace/
           kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/${{ env.K8S_NAMESPACE }} --timeout=30s
-          kubectl apply -f k8s/external-secrets/
-          if kubectl api-resources --api-group=kyverno.io -o name 2>/dev/null | grep -q clusterpolicies; then
-            kubectl apply -f k8s/kyverno/
-          else
-            echo "Kyverno CRDs not found — skipping policy apply (install Kyverno via Terraform first)"
-          fi
+          kubectl apply -f k8s/external-secrets/externalsecret.yaml
           kubectl apply -f k8s/app/
 
       - name: Apply monitoring manifests
         run: |
-          # Namespace, ExternalSecret, and ConfigMap can always be applied (native K8s or ESO CRDs)
-          kubectl apply -f k8s/monitoring/namespace.yaml
-          kubectl apply -f k8s/monitoring/externalsecret.yaml
-          kubectl apply -f k8s/monitoring/grafana-dashboard.yaml
-          # ServiceMonitor and PrometheusRule require Prometheus Operator CRDs (installed by kube-prometheus-stack via Terraform)
           if kubectl get crd servicemonitors.monitoring.coreos.com &>/dev/null; then
             kubectl apply -f k8s/monitoring/service-monitor.yaml
             kubectl apply -f k8s/monitoring/prometheus-rules.yaml
           else
             echo "Prometheus Operator CRDs not found -- skipping monitoring CRs (install kube-prometheus-stack via Terraform first)"
           fi
+          kubectl apply -f k8s/monitoring/grafana-dashboard.yaml
 
       - name: Update deployment image
         run: |
