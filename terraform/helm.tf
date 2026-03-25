@@ -75,6 +75,17 @@ resource "helm_release" "kyverno_policies" {
   depends_on = [helm_release.kyverno]
 }
 
+# Create the monitoring namespace before the ExternalSecret so the Grafana admin
+# secret can be synced before kube-prometheus-stack deploys (avoiding a circular
+# dependency that causes a timeout on fresh runs).
+resource "kubernetes_namespace" "monitoring" {
+  metadata {
+    name = "monitoring"
+  }
+
+  depends_on = [module.eks]
+}
+
 # kube-prometheus-stack - Prometheus, Grafana, AlertManager, node-exporter, kube-state-metrics
 #
 # Access Grafana UI:
@@ -94,9 +105,9 @@ resource "helm_release" "kube_prometheus_stack" {
   chart            = "kube-prometheus-stack"
   version          = "72.6.2"
   namespace        = "monitoring"
-  create_namespace = true
+  create_namespace = false
   wait             = true
-  timeout          = 600
+  timeout          = 900
 
   # Grafana - Loki datasource (must precede set blocks due to HCL attribute-before-block ordering)
   values = [
@@ -215,7 +226,12 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "128Mi"
   }
 
-  depends_on = [module.eks, helm_release.kyverno_policies]
+  depends_on = [
+    module.eks,
+    helm_release.kyverno_policies,
+    kubernetes_namespace.monitoring,
+    kubectl_manifest.grafana_admin_external_secret,
+  ]
 }
 
 # loki-stack - Loki (log aggregation) + Promtail (log shipping)
@@ -347,7 +363,7 @@ resource "kubectl_manifest" "grafana_admin_external_secret" {
 
   depends_on = [
     helm_release.external_secrets,
-    helm_release.kube_prometheus_stack,
+    kubernetes_namespace.monitoring,
     kubectl_manifest.cluster_secret_store,
   ]
 }
