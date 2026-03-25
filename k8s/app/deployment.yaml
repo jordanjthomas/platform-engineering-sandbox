@@ -22,7 +22,7 @@ spec:
       serviceAccountName: namespace-provisioner
       containers:
         - name: api
-          # Overridden by CI with commit SHA — never deployed as-is
+          # Overridden by CI with commit SHA - never deployed as-is
           image: PLACEHOLDER:PLACEHOLDER
           ports:
             - containerPort: 8000

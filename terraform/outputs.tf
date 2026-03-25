@@ -42,7 +42,7 @@ output "eks_cluster_certificate_authority_data" {
 }
 
 output "eks_cluster_oidc_issuer_url" {
-  description = "OIDC issuer URL for the EKS cluster — used to configure IRSA trust policies"
+  description = "OIDC issuer URL for the EKS cluster - used to configure IRSA trust policies"
   value       = module.eks.cluster_oidc_issuer_url
 }
 

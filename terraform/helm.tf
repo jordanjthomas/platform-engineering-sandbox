@@ -7,11 +7,12 @@ resource "helm_release" "external_secrets" {
   namespace        = "external-secrets"
   create_namespace = true
   wait             = true
+  timeout          = 600
 
   depends_on = [module.eks]
 }
 
-# Kyverno — policy engine for Kubernetes admission control
+# Kyverno - policy engine for Kubernetes admission control
 resource "helm_release" "kyverno" {
   name             = "kyverno"
   repository       = "https://kyverno.github.io/kyverno/"
@@ -20,6 +21,7 @@ resource "helm_release" "kyverno" {
   namespace        = "kyverno"
   create_namespace = true
   wait             = true
+  timeout          = 600
 
   set {
     name  = "admissionController.replicas"
@@ -59,6 +61,7 @@ resource "helm_release" "kyverno_policies" {
   version    = "3.3.4"
   namespace  = "kyverno"
   wait       = true
+  timeout    = 600
 
   values = [yamlencode({
     podSecurityStandard = "privileged"
@@ -225,6 +228,7 @@ resource "helm_release" "loki_stack" {
   namespace        = "loki"
   create_namespace = true
   wait             = true
+  timeout          = 600
 
   set {
     name  = "loki.persistence.enabled"
