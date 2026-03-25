@@ -25,7 +25,7 @@ app_logger.addHandler(handler)
 app_logger.setLevel(settings.log_level)
 
 if not settings.admin_token:
-    app_logger.warning("ADMIN_TOKEN is not set — all authenticated requests will be rejected")
+    app_logger.warning("ADMIN_TOKEN is not set - all authenticated requests will be rejected")
 
 REQUEST_COUNT = Counter(
     "namespace_provisioner_requests_total",
