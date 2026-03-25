@@ -18,6 +18,18 @@ module "eks" {
   # Grant the Terraform caller admin access to the cluster on creation
   enable_cluster_creator_admin_permissions = true
 
+  access_entries = {
+    sso_admin = {
+      principal_arn = var.sso_admin_role_arn
+      policy_associations = {
+        cluster_admin = {
+          policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
+
   eks_managed_node_groups = {
     default = {
       instance_types = [var.node_instance_type]

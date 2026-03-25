@@ -72,6 +72,7 @@ jobs:
       - name: Terraform Apply
         env:
           TF_VAR_grafana_admin_password: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          TF_VAR_sso_admin_role_arn: ${{ secrets.SSO_ADMIN_ROLE_ARN }}
         run: |
           terraform apply \
             -input=false \

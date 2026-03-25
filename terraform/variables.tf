@@ -95,6 +95,12 @@ variable "node_max_size" {
   default     = 3
 }
 
+variable "sso_admin_role_arn" {
+  description = "ARN of the AWS SSO admin role for EKS cluster access, supplied via TF_VAR_sso_admin_role_arn from GitHub Secrets"
+  type        = string
+  sensitive   = true
+}
+
 # ECR
 
 variable "grafana_admin_password" {
