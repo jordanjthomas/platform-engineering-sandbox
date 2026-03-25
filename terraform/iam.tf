@@ -34,7 +34,6 @@ resource "aws_iam_role_policy" "external_secrets" {
         ]
         Resource = [
           aws_secretsmanager_secret.app_api_key.arn,
-          aws_secretsmanager_secret.grafana_admin_password.arn,
         ]
       }
     ]

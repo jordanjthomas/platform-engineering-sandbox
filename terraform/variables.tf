@@ -97,6 +97,12 @@ variable "node_max_size" {
 
 # ECR
 
+variable "grafana_admin_password" {
+  description = "Grafana admin password, supplied via TF_VAR_grafana_admin_password from GitHub Secrets"
+  type        = string
+  sensitive   = true
+}
+
 variable "ecr_repository_name" {
   description = "Name of the ECR repository for app container images"
   type        = string
