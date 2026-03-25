@@ -76,17 +76,6 @@ resource "helm_release" "kyverno_policies" {
   depends_on = [helm_release.kyverno]
 }
 
-# Create the monitoring namespace before the ExternalSecret so the Grafana admin
-# secret can be synced before kube-prometheus-stack deploys (avoiding a circular
-# dependency that causes a timeout on fresh runs).
-resource "kubernetes_namespace" "monitoring" {
-  metadata {
-    name = "monitoring"
-  }
-
-  depends_on = [module.eks]
-}
-
 # kube-prometheus-stack - Prometheus, Grafana, AlertManager, node-exporter, kube-state-metrics
 #
 # Access Grafana UI:
@@ -106,14 +95,16 @@ resource "helm_release" "kube_prometheus_stack" {
   chart            = "kube-prometheus-stack"
   version          = "72.6.2"
   namespace        = "monitoring"
-  create_namespace = false
+  create_namespace = true
   wait             = true
   timeout          = 900
 
-  # Grafana - Loki datasource (must precede set blocks due to HCL attribute-before-block ordering)
   values = [
     yamlencode({
       grafana = {
+        # Admin credentials read directly from Secrets Manager.
+        # The secret value is managed out-of-band (see secrets.tf).
+        adminPassword = jsondecode(data.aws_secretsmanager_secret_version.grafana_admin_password.secret_string)["password"]
         additionalDataSources = [
           {
             name      = "Loki"
@@ -170,22 +161,6 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "1Gi"
   }
 
-  # Grafana - admin credentials from Secrets Manager via ESO
-  set {
-    name  = "grafana.admin.existingSecret"
-    value = "grafana-admin-credentials"
-  }
-
-  set {
-    name  = "grafana.admin.userKey"
-    value = "username"
-  }
-
-  set {
-    name  = "grafana.admin.passwordKey"
-    value = "password"
-  }
-
   set {
     name  = "grafana.resources.requests.cpu"
     value = "100m"
@@ -227,12 +202,7 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "128Mi"
   }
 
-  depends_on = [
-    module.eks,
-    helm_release.kyverno_policies,
-    kubernetes_namespace.monitoring,
-    kubectl_manifest.grafana_admin_external_secret,
-  ]
+  depends_on = [module.eks, helm_release.kyverno_policies]
 }
 
 # loki-stack - Loki (log aggregation) + Promtail (log shipping)
@@ -301,8 +271,7 @@ resource "helm_release" "loki_stack" {
 }
 
 # ClusterSecretStore -- configures how External Secrets Operator connects to AWS Secrets Manager.
-# Cluster-scoped platform resource used by both the Grafana admin ExternalSecret (Terraform-owned)
-# and the app ExternalSecret (app-deploy-owned).
+# Used by the app ExternalSecret (applied via app-deploy workflow).
 resource "kubectl_manifest" "cluster_secret_store" {
   yaml_body = yamlencode({
     apiVersion = "external-secrets.io/v1"
@@ -323,48 +292,3 @@ resource "kubectl_manifest" "cluster_secret_store" {
   depends_on = [helm_release.external_secrets]
 }
 
-# Grafana admin credentials -- ExternalSecret that syncs the Grafana admin password
-# from AWS Secrets Manager into a K8s Secret consumed by the kube-prometheus-stack Helm release.
-resource "kubectl_manifest" "grafana_admin_external_secret" {
-  yaml_body = yamlencode({
-    apiVersion = "external-secrets.io/v1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "grafana-admin-credentials"
-      namespace = "monitoring"
-    }
-    spec = {
-      refreshInterval = "1h"
-      secretStoreRef = {
-        name = "aws-secrets-manager"
-        kind = "ClusterSecretStore"
-      }
-      target = {
-        name           = "grafana-admin-credentials"
-        creationPolicy = "Owner"
-      }
-      data = [
-        {
-          secretKey = "password"
-          remoteRef = {
-            key      = "/${var.environment}/${var.project}/grafana-admin-password"
-            property = "password"
-          }
-        },
-        {
-          secretKey = "username"
-          remoteRef = {
-            key      = "/${var.environment}/${var.project}/grafana-admin-password"
-            property = "username"
-          }
-        }
-      ]
-    }
-  })
-
-  depends_on = [
-    helm_release.external_secrets,
-    kubernetes_namespace.monitoring,
-    kubectl_manifest.cluster_secret_store,
-  ]
-}
