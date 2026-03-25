@@ -7,10 +7,9 @@ A platform API that lets teams self-serve Kubernetes namespaces without needing 
 ```text
 terraform/           - VPC, EKS cluster, ECR, Pod Identity, IAM, Helm releases (IaC via Terraform)
 app/                 - FastAPI namespace provisioner API
-k8s/app/             - Kubernetes manifests for deploying the API
-k8s/external-secrets/- ClusterSecretStore and ExternalSecret resources
-k8s/kyverno/         - Kyverno ClusterPolicies (resource limits, non-root, labels)
-k8s/monitoring/      - ServiceMonitor, PrometheusRule, Grafana dashboard, monitoring ExternalSecret
+k8s/app/             - Kubernetes manifests for deploying the API (Kustomize-managed)
+k8s/external-secrets/- ExternalSecret for app secrets
+k8s/monitoring/      - ServiceMonitor, PrometheusRule, Grafana dashboard
 k8s/namespace/       - Namespace definition
 .github/             - CI/CD workflows (Terraform + app deploy)
 ```
@@ -69,38 +68,45 @@ GitHub Actions workflows, all using OIDC (no stored AWS credentials):
 
 Infrastructure and the application are deployed by separate workflows with no automatic dependency between them. On a fresh deploy (or after a full teardown), follow this order:
 
-1. **Terraform Apply** -- push changes to `terraform/` or trigger manually. Wait for the workflow to complete. This provisions the VPC, EKS cluster, ECR, ESO, IAM, kube-prometheus-stack, and loki-stack.
-2. **Seed secrets** -- Terraform creates Secrets Manager secrets but not their values (kept out of state). Set them once after the initial apply:
+1. **Configure GitHub repo secrets** -- the following secrets must be set before running any workflow:
+
+   | Secret | Description |
+   | ------ | ----------- |
+   | `AWS_ROLE_ARN` | OIDC role ARN for GitHub Actions |
+   | `TF_STATE_BUCKET` | S3 bucket for Terraform state |
+   | `GRAFANA_ADMIN_PASSWORD` | Grafana admin password |
+   | `SSO_ADMIN_ROLE_ARN` | AWS SSO admin role ARN for EKS cluster access |
+   | `INFRACOST_API_KEY` | Infracost API key (used by plan workflow) |
+
+2. **Terraform Apply** -- push changes to `terraform/` or trigger manually. Wait for the workflow to complete. This provisions the VPC, EKS cluster, ECR, ESO, Kyverno, IAM, kube-prometheus-stack, and loki-stack.
+3. **Seed app secret** -- Terraform creates the Secrets Manager secret for the app admin token but not its value (kept out of state). Set it once after the initial apply:
 
    ```bash
-   # API admin token
    aws secretsmanager put-secret-value \
      --secret-id /sandbox/platform-engineering/admin-token \
      --secret-string '{"token":"<your-actual-token>"}' \
      --region ap-southeast-2
-
-   # Grafana admin password
-   aws secretsmanager put-secret-value \
-     --secret-id /sandbox/platform-engineering/grafana-admin-password \
-     --secret-string '{"username":"admin","password":"<your-secure-password>"}' \
-     --region ap-southeast-2
    ```
 
-3. **App Deploy** -- push changes to `app/` or `k8s/`, or trigger manually from the Actions tab. This builds the container image, pushes to ECR, and applies the Kubernetes manifests (including monitoring resources when CRDs are present).
+4. **App Deploy** -- push changes to `app/` or `k8s/`, or trigger manually from the Actions tab. This builds the container image, pushes to ECR, and applies the Kubernetes manifests (including monitoring resources when CRDs are present).
 
 For day-to-day changes, pushes to `terraform/` or `app/`/`k8s/` trigger their respective workflows automatically and can run independently.
 
 ## Secrets management
 
-Application secrets are stored in AWS Secrets Manager and synced into Kubernetes via [External Secrets Operator](https://external-secrets.io/) (ESO). The ESO controller authenticates to AWS using EKS Pod Identity, so no static credentials or OIDC trust policy boilerplate is required.
+Secrets follow two patterns depending on the consumer:
 
-### How it works
+**Platform secrets** (Grafana admin password, SSO role ARN) are passed directly to Terraform via `TF_VAR_` environment variables sourced from GitHub repo secrets. This avoids circular dependencies between Terraform resources and keeps the deployment to a single `terraform apply`.
 
-1. **Terraform** provisions the Secrets Manager secret (the container), installs ESO via Helm, the Pod Identity agent addon, an IAM role scoped to read the secret, and a Pod Identity association binding that role to the ESO service account
-2. **App Deploy** applies a `ClusterSecretStore` pointing at Secrets Manager and an `ExternalSecret` that syncs the secret value into a native Kubernetes Secret
+**Application secrets** (API admin token) are stored in AWS Secrets Manager and synced into Kubernetes via [External Secrets Operator](https://external-secrets.io/) (ESO). The ESO controller authenticates to AWS using EKS Pod Identity, so no static credentials or OIDC trust policy boilerplate is required.
+
+### How ESO works (app secrets)
+
+1. **Terraform** provisions the Secrets Manager secret (the container), installs ESO via Helm, the Pod Identity agent addon, an IAM role scoped to read the secret, a Pod Identity association binding that role to the ESO service account, and a `ClusterSecretStore` pointing at Secrets Manager
+2. **App Deploy** applies an `ExternalSecret` that syncs the secret value into a native Kubernetes Secret
 3. **The app** reads the Kubernetes Secret as an environment variable. It has no awareness of Secrets Manager
 
-### Seeding a secret value
+### Seeding the app secret
 
 Terraform creates the Secrets Manager secret but does not manage the value, keeping it out of state. Set the value out-of-band after the initial `terraform apply`:
 
@@ -151,7 +157,7 @@ kubectl port-forward -n monitoring svc/kube-prometheus-stack-prometheus 9090:909
 kubectl port-forward -n monitoring svc/kube-prometheus-stack-alertmanager 9093:9093
 ```
 
-Grafana credentials are stored in Secrets Manager at `/<environment>/<project>/grafana-admin-password` and synced via ESO.
+Grafana admin password is supplied via the `GRAFANA_ADMIN_PASSWORD` GitHub repo secret and passed directly to the kube-prometheus-stack Helm release at deploy time. The default username is `admin`.
 
 ### App metrics
 
@@ -174,6 +180,21 @@ Two PrometheusRule alerts are configured:
 | FrequentPodRestarts | > 3 restarts in 10 minutes | critical |
 
 View alert status in AlertManager or in the Prometheus UI under Alerts.
+
+## Cluster access
+
+EKS access entries are managed in Terraform (`terraform/eks.tf`). Two principals have cluster admin access:
+
+- **CI/CD role** -- the GitHub Actions OIDC role, granted automatically via `enable_cluster_creator_admin_permissions`
+- **SSO admin role** -- your AWS SSO administrator role, added via the `access_entries` block using the `SSO_ADMIN_ROLE_ARN` GitHub secret
+
+To access the cluster locally:
+
+```bash
+aws sso login
+aws eks update-kubeconfig --name platform-engineering-sandbox --region ap-southeast-2
+kubectl get nodes
+```
 
 ## Network architecture
 
