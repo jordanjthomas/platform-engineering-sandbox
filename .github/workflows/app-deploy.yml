@@ -77,7 +77,12 @@ jobs:
           kubectl apply -f k8s/namespace/
           kubectl wait --for=jsonpath='{.status.phase}'=Active namespace/${{ env.K8S_NAMESPACE }} --timeout=30s
           kubectl apply -f k8s/external-secrets/externalsecret.yaml
-          kubectl apply -f k8s/app/
+
+      - name: Deploy application
+        run: |
+          cd k8s/app
+          kustomize edit set image "PLACEHOLDER:PLACEHOLDER=${{ needs.build-and-push.outputs.image_tag }}"
+          kubectl apply -k .
 
       - name: Apply monitoring manifests
         run: |
@@ -88,12 +93,6 @@ jobs:
             echo "Prometheus Operator CRDs not found -- skipping monitoring CRs (install kube-prometheus-stack via Terraform first)"
           fi
           kubectl apply -f k8s/monitoring/grafana-dashboard.yaml
-
-      - name: Update deployment image
-        run: |
-          kubectl set image deployment/namespace-provisioner \
-            api=${{ needs.build-and-push.outputs.image_tag }} \
-            -n ${{ env.K8S_NAMESPACE }}
 
       - name: Wait for rollout
         run: kubectl rollout status deployment/namespace-provisioner -n ${{ env.K8S_NAMESPACE }} --timeout=120s
