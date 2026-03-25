@@ -43,6 +43,9 @@ terraform.rc
 # Ignore notes
 /docs/*
 
+# Ignore claude
+.claude/
+
 # Python
 .venv/
 __pycache__/
@@ -52,3 +55,4 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
