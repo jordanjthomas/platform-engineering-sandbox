@@ -16,7 +16,7 @@ module "vpc" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  # EKS requires these tags for the AWS Load Balancer Controller to auto-discover subnets when provisioning load balancers
+  # EKS requires these tags for the AWS Load Balancer Controller to auto-discover subnets when provisioning load balancers.
   public_subnet_tags = {
     "kubernetes.io/role/elb"                    = "1"
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
