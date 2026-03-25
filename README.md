@@ -7,10 +7,9 @@ A platform API that lets teams self-serve Kubernetes namespaces without needing 
 ```text
 terraform/           - VPC, EKS cluster, ECR, Pod Identity, IAM, Helm releases (IaC via Terraform)
 app/                 - FastAPI namespace provisioner API
-k8s/app/             - Kubernetes manifests for deploying the API
+k8s/app/             - Kubernetes manifests for deploying the API (Kustomize-managed)
 k8s/external-secrets/- ExternalSecret for app secrets
-k8s/kyverno/         - Kyverno ClusterPolicies (resource limits, non-root, labels)
-k8s/monitoring/      - ServiceMonitor, PrometheusRule, Grafana dashboard, monitoring ExternalSecret
+k8s/monitoring/      - ServiceMonitor, PrometheusRule, Grafana dashboard
 k8s/namespace/       - Namespace definition
 .github/             - CI/CD workflows (Terraform + app deploy)
 ```
@@ -103,8 +102,8 @@ Secrets follow two patterns depending on the consumer:
 
 ### How ESO works (app secrets)
 
-1. **Terraform** provisions the Secrets Manager secret (the container), installs ESO via Helm, the Pod Identity agent addon, an IAM role scoped to read the secret, and a Pod Identity association binding that role to the ESO service account
-2. **App Deploy** applies a `ClusterSecretStore` pointing at Secrets Manager and an `ExternalSecret` that syncs the secret value into a native Kubernetes Secret
+1. **Terraform** provisions the Secrets Manager secret (the container), installs ESO via Helm, the Pod Identity agent addon, an IAM role scoped to read the secret, a Pod Identity association binding that role to the ESO service account, and a `ClusterSecretStore` pointing at Secrets Manager
+2. **App Deploy** applies an `ExternalSecret` that syncs the secret value into a native Kubernetes Secret
 3. **The app** reads the Kubernetes Secret as an environment variable. It has no awareness of Secrets Manager
 
 ### Seeding the app secret
