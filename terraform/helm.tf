@@ -22,6 +22,7 @@ resource "helm_release" "kyverno" {
   create_namespace = true
   wait             = true
   timeout          = 600
+  disable_webhooks = true
 
   set {
     name  = "admissionController.replicas"
