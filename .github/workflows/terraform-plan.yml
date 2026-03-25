@@ -79,6 +79,8 @@ jobs:
 
       - name: Terraform Plan
         id: plan
+        env:
+          TF_VAR_grafana_admin_password: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: |
           set +e
           terraform plan \

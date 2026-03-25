@@ -70,6 +70,8 @@ jobs:
       # This ensures we apply against the current state of main, not a
       # potentially stale plan from when the PR was open.
       - name: Terraform Apply
+        env:
+          TF_VAR_grafana_admin_password: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: |
           terraform apply \
             -input=false \

@@ -102,9 +102,7 @@ resource "helm_release" "kube_prometheus_stack" {
   values = [
     yamlencode({
       grafana = {
-        # Admin credentials read directly from Secrets Manager.
-        # The secret value is managed out-of-band (see secrets.tf).
-        adminPassword = jsondecode(data.aws_secretsmanager_secret_version.grafana_admin_password.secret_string)["password"]
+        adminPassword = var.grafana_admin_password
         additionalDataSources = [
           {
             name      = "Loki"

@@ -65,6 +65,8 @@ jobs:
             -backend-config="encrypt=true"
 
       - name: Terraform Destroy
+        env:
+          TF_VAR_grafana_admin_password: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
         run: |
           terraform destroy \
             -input=false \
