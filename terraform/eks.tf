@@ -62,3 +62,35 @@ resource "aws_eks_addon" "pod_identity_agent" {
   cluster_name = module.eks.cluster_name
   addon_name   = "eks-pod-identity-agent"
 }
+
+resource "aws_eks_addon" "ebs_csi_driver" {
+  cluster_name             = module.eks.cluster_name
+  addon_name               = "aws-ebs-csi-driver"
+  service_account_role_arn = aws_iam_role.ebs_csi_driver.arn
+
+  depends_on = [aws_eks_addon.pod_identity_agent]
+}
+
+# gp3 StorageClass -- replaces the legacy gp2 in-tree provisioner with CSI-backed gp3.
+# gp3 offers better baseline performance (3000 IOPS / 125 MiB/s) at lower cost than gp2.
+resource "kubectl_manifest" "gp3_storage_class" {
+  yaml_body = yamlencode({
+    apiVersion = "storage.k8s.io/v1"
+    kind       = "StorageClass"
+    metadata = {
+      name = "gp3"
+      annotations = {
+        "storageclass.kubernetes.io/is-default-class" = "true"
+      }
+    }
+    provisioner       = "ebs.csi.aws.com"
+    volumeBindingMode = "WaitForFirstConsumer"
+    reclaimPolicy     = "Delete"
+    parameters = {
+      type      = "gp3"
+      encrypted = "true"
+    }
+  })
+
+  depends_on = [aws_eks_addon.ebs_csi_driver]
+}
