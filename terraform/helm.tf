@@ -219,6 +219,11 @@ resource "helm_release" "loki_stack" {
   }
 
   set {
+    name  = "loki.config.limits_config.volume_enabled"
+    value = "true"
+  }
+
+  set {
     name  = "loki.resources.requests.cpu"
     value = "100m"
   }
