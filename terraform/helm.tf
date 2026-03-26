@@ -214,6 +214,11 @@ resource "helm_release" "loki_stack" {
   timeout          = 600
 
   set {
+    name  = "loki.image.tag"
+    value = "2.9.3"
+  }
+
+  set {
     name  = "loki.persistence.enabled"
     value = "false"
   }
