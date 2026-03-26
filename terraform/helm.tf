@@ -132,11 +132,9 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "10Gi"
   }
 
-  # Note: EKS default StorageClass is gp2. If your cluster has a gp3 StorageClass, change this to "gp3".
-  # Check available StorageClasses: kubectl get storageclass
   set {
     name  = "prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName"
-    value = "gp2"
+    value = "gp3"
   }
 
   set {
@@ -200,7 +198,7 @@ resource "helm_release" "kube_prometheus_stack" {
     value = "128Mi"
   }
 
-  depends_on = [module.eks, helm_release.kyverno_policies]
+  depends_on = [module.eks, helm_release.kyverno_policies, kubectl_manifest.gp3_storage_class]
 }
 
 # loki-stack - Loki (log aggregation) + Promtail (log shipping)
